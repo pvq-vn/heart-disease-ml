@@ -1,4 +1,9 @@
 from sklearn.linear_model import Perceptron
 
 def get_perceptron():
-    return Perceptron(max_iter=1000)
+    """
+    Khởi tạo mô hình Perceptron.
+    Các siêu tham số như alpha, penalty, max_iter sẽ được
+    tuning qua GridSearchCV.
+    """
+    return Perceptron(max_iter=1000, random_state=42)

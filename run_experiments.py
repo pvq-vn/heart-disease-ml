@@ -6,15 +6,17 @@ import csv
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sys.path.append("src")
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
-from preprocessing import get_preprocessing_pipeline
-from models.logistic_regression import get_logistic_regression
-from models.perceptron import get_perceptron
-from models.knn_classifier import get_knn_classifier
-from metrics import calculate_metrics
+
+# Sử dụng relative import sạch, không cần sys.path hack nếu có thể,
+# nhưng vì chạy từ thư mục gốc và thư mục con là src, ta import bình thường:
+from src.preprocessing import get_preprocessing_pipeline
+from src.models.logistic_regression import get_logistic_regression
+from src.models.perceptron import get_perceptron
+from src.models.knn_classifier import get_knn_classifier
+from src.metrics import calculate_metrics
 
 def format_params(params):
     if not isinstance(params, dict):
@@ -27,99 +29,153 @@ def main():
     
     with open(results_file, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['Model', 'Hyperparameters', 'CV_Accuracy', 'Test_Accuracy', 'Test_Precision', 'Test_Recall', 'Test_F1'])
+        writer.writerow(['Model', 'Best_Parameters', 'CV_Score', 'Test_Accuracy', 'Test_Precision', 'Test_Recall', 'Test_F1', 'Test_ROC_AUC'])
     
-    # Load dataset
+    # 1. Load dataset
     df = pd.read_csv('data/heart_cleveland_upload.csv')
+    
+    # Tạo EDA charts
+    # Target distribution
+    plt.figure(figsize=(6, 4))
+    sns.countplot(data=df, x='condition')
+    plt.title('Target Distribution')
+    plt.savefig('experiments/figures/target_distribution.png')
+    plt.close()
+
+    # Correlation matrix
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(df.corr(), annot=True, cmap='coolwarm', fmt='.2f')
+    plt.title('Feature Correlation')
+    plt.savefig('experiments/figures/correlation_matrix.png')
+    plt.close()
+    
     X = df.drop('condition', axis=1)
     y = df['condition']
     
-    # Train-test split
+    # 2. Train/Test split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    
+    # 3. Build preprocessing
+    preprocessor = get_preprocessing_pipeline()
+    
+    # Function helper cho evaluation
+    def evaluate_model(name, pipeline, param_grid):
+        print(f"Running {name}...")
+        grid = GridSearchCV(pipeline, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+        grid.fit(X_train, y_train)
+        
+        y_pred = grid.predict(X_test)
+        
+        # Nếu model có predict_proba hoặc decision_function
+        y_score = None
+        if hasattr(grid, "predict_proba"):
+            y_score = grid.predict_proba(X_test)[:, 1]
+        elif hasattr(grid, "decision_function"):
+            y_score = grid.decision_function(X_test)
+            
+        metrics = calculate_metrics(y_test, y_pred, y_score)
+        
+        with open(results_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([name, format_params(grid.best_params_), grid.best_score_, 
+                             metrics['Accuracy'], metrics['Precision'], metrics['Recall'], 
+                             metrics['F1_Score'], metrics['ROC_AUC']])
+        return grid
 
-    # 1. Logistic Regression
-    print("Running Logistic Regression...")
-    lr_pipeline = Pipeline([
-        ('preprocessor', get_preprocessing_pipeline()),
-        ('model', get_logistic_regression())
-    ])
-    lr_param_grid = {
-        'model__C': [0.1, 1.0, 10.0]
-    }
-    lr_grid = GridSearchCV(lr_pipeline, lr_param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    lr_grid.fit(X_train, y_train)
-    lr_pred = lr_grid.predict(X_test)
-    lr_metrics = calculate_metrics(y_test, lr_pred)
-    with open(results_file, 'a', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Logistic Regression', format_params(lr_grid.best_params_), lr_grid.best_score_, lr_metrics['Accuracy'], lr_metrics['Precision'], lr_metrics['Recall'], lr_metrics['F1_Score']])
-
-    # 2. Perceptron
-    print("Running Perceptron...")
+    # 4. Perceptron + GridSearchCV
     perc_pipeline = Pipeline([
-        ('preprocessor', get_preprocessing_pipeline()),
+        ('preprocessor', preprocessor),
         ('model', get_perceptron())
     ])
     perc_param_grid = {
-        'model__alpha': [0.0001, 0.001, 0.01],
+        'model__alpha': [0.0001, 0.001, 0.01, 0.1],
         'model__penalty': [None, 'l2', 'l1']
     }
-    perc_grid = GridSearchCV(perc_pipeline, perc_param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    perc_grid.fit(X_train, y_train)
-    perc_pred = perc_grid.predict(X_test)
-    perc_metrics = calculate_metrics(y_test, perc_pred)
-    with open(results_file, 'a', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Perceptron', format_params(perc_grid.best_params_), perc_grid.best_score_, perc_metrics['Accuracy'], perc_metrics['Precision'], perc_metrics['Recall'], perc_metrics['F1_Score']])
-
-    # 3. KNN Classifier
-    print("Running KNN Classifier...")
+    evaluate_model('Perceptron', perc_pipeline, perc_param_grid)
+    
+    # 5. Logistic Regression + GridSearchCV
+    lr_pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('model', get_logistic_regression())
+    ])
+    lr_param_grid = {
+        'model__C': [0.01, 0.1, 1, 10, 100],
+        'model__solver': ['lbfgs', 'liblinear']
+    }
+    evaluate_model('Logistic Regression', lr_pipeline, lr_param_grid)
+    
+    # 6. KNN + GridSearchCV
     knn_pipeline = Pipeline([
-        ('preprocessor', get_preprocessing_pipeline()),
+        ('preprocessor', preprocessor),
         ('model', get_knn_classifier())
     ])
     knn_param_grid = {
-        'model__n_neighbors': [3, 5, 7, 9, 11],
+        'model__n_neighbors': [1, 3, 5, 7, 9, 11, 15],
         'model__weights': ['uniform', 'distance']
     }
-    knn_grid = GridSearchCV(knn_pipeline, knn_param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    knn_grid.fit(X_train, y_train)
-    knn_pred = knn_grid.predict(X_test)
-    knn_metrics = calculate_metrics(y_test, knn_pred)
-    with open(results_file, 'a', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['KNN Classifier', format_params(knn_grid.best_params_), knn_grid.best_score_, knn_metrics['Accuracy'], knn_metrics['Precision'], knn_metrics['Recall'], knn_metrics['F1_Score']])
+    knn_grid = evaluate_model('KNN Classifier', knn_pipeline, knn_param_grid)
+    
+    # Vẽ biểu đồ K vs CV Score (lấy từ KNN grid)
+    results_knn = pd.DataFrame(knn_grid.cv_results_)
+    plt.figure(figsize=(8, 5))
+    for weight in ['uniform', 'distance']:
+        subset = results_knn[results_knn['param_model__weights'] == weight]
+        plt.plot(subset['param_model__n_neighbors'], subset['mean_test_score'], marker='o', label=f'weights={weight}')
+    plt.title('KNN: K vs Validation Accuracy')
+    plt.xlabel('n_neighbors (K)')
+    plt.ylabel('CV Accuracy')
+    plt.legend()
+    plt.savefig('experiments/figures/knn_k_vs_score.png')
+    plt.close()
+    
+    # 7. Phân tích PCA (Vẽ biểu đồ explained variance)
+    X_train_preprocessed = preprocessor.fit_transform(X_train)
+    pca_temp = PCA().fit(X_train_preprocessed)
+    plt.figure(figsize=(8, 5))
+    plt.plot(np.cumsum(pca_temp.explained_variance_ratio_), marker='o')
+    plt.axhline(y=0.95, color='r', linestyle='--', label='95% Explained Variance')
+    plt.title('PCA Explained Variance')
+    plt.xlabel('Number of Components')
+    plt.ylabel('Cumulative Explained Variance')
+    plt.legend()
+    plt.savefig('experiments/figures/pca_explained_variance.png')
+    plt.close()
 
-    # 4. PCA + Logistic Regression
-    print("Running PCA + Logistic Regression...")
+    # 8. PCA + Logistic Regression
     pca_lr_pipeline = Pipeline([
-        ('preprocessor', get_preprocessing_pipeline()),
-        ('pca', PCA()),
+        ('preprocessor', preprocessor),
+        ('pca', PCA(n_components=0.95)),
         ('model', get_logistic_regression())
     ])
-    pca_param_grid = {
-        'pca__n_components': [0.8, 0.9, 0.95], # keep 80%, 90% or 95% of variance
-        'model__C': [0.1, 1.0, 10.0]
+    pca_lr_param_grid = {
+        'model__C': [0.01, 0.1, 1, 10, 100]
     }
-    pca_grid = GridSearchCV(pca_lr_pipeline, pca_param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    pca_grid.fit(X_train, y_train)
-    pca_pred = pca_grid.predict(X_test)
-    pca_metrics = calculate_metrics(y_test, pca_pred)
-    with open(results_file, 'a', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['PCA + Logistic Regression', format_params(pca_grid.best_params_), pca_grid.best_score_, pca_metrics['Accuracy'], pca_metrics['Precision'], pca_metrics['Recall'], pca_metrics['F1_Score']])
+    evaluate_model('PCA + Logistic Regression', pca_lr_pipeline, pca_lr_param_grid)
+    
+    # 9. PCA + KNN
+    pca_knn_pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('pca', PCA(n_components=0.95)),
+        ('model', get_knn_classifier())
+    ])
+    pca_knn_param_grid = {
+        'model__n_neighbors': [1, 3, 5, 7, 9, 11, 15],
+        'model__weights': ['uniform', 'distance']
+    }
+    evaluate_model('PCA + KNN Classifier', pca_knn_pipeline, pca_knn_param_grid)
 
-    # 5. Model Comparison Chart
+    # 10. Generate model comparison figure
     print("Generating Model Comparison Chart...")
     results_df = pd.read_csv(results_file)
     plt.figure(figsize=(10, 6))
-    sns.barplot(x='Test_Accuracy', y='Model', data=results_df.sort_values('Test_Accuracy', ascending=False), hue='Model')
+    sns.barplot(x='Test_Accuracy', y='Model', data=results_df.sort_values('Test_Accuracy', ascending=False), hue='Model', dodge=False)
     plt.title('Model Comparison - Test Accuracy')
     plt.xlim(0, 1.0)
     plt.tight_layout()
-    plt.savefig('experiments/figures/model_comparison_accuracy.png')
+    plt.savefig('experiments/figures/model_comparison.png')
+    plt.close()
     
     print("All experiments completed successfully.")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
