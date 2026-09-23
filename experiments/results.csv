@@ -1,6 +1,20 @@
 Model,Best_Parameters,CV_Score,Test_Accuracy,Test_Precision,Test_Recall,Test_F1,Test_ROC_AUC
-Perceptron,"{'model__alpha': 0.0001, 'model__penalty': 'l2'}",0.7976063829787234,0.7333333333333333,0.6428571428571429,0.9642857142857143,0.7714285714285715,0.9252232142857143
-Logistic Regression,"{'model__C': 0.1, 'model__solver': 'lbfgs'}",0.8314716312056737,0.9,1.0,0.7857142857142857,0.88,0.9620535714285714
-KNN Classifier,"{'model__n_neighbors': 11, 'model__weights': 'uniform'}",0.8187943262411348,0.8666666666666667,1.0,0.7142857142857143,0.8333333333333334,0.9481026785714286
-PCA + Logistic Regression,{'model__C': 0.1},0.823049645390071,0.9,1.0,0.7857142857142857,0.88,0.9609375
-PCA + KNN Classifier,"{'model__n_neighbors': 15, 'model__weights': 'uniform'}",0.8188829787234042,0.8666666666666667,1.0,0.7142857142857143,0.8333333333333334,0.9430803571428571
+Perceptron,"{'penalty': 'l1', 'alpha': 0.001}",N/A,0.8305,0.8400,0.7778,0.8077,0.8889
+Logistic Regression,"{'learning_rate': 0.05, 'l2': 0.0}",N/A,0.8475,0.8462,0.8148,0.8302,0.9201
+KNN Classifier,"{'n_neighbors': 5, 'weights': 'uniform'}",N/A,0.8814,0.8333,0.9259,0.8772,0.9219
+MLP (Baseline),"{'weight_decay': 0.0, 'dropout_rate': 0.0}",N/A,0.8475,0.8750,0.7778,0.8235,0.9259
+MLP + Weight Decay,"{'weight_decay': 0.01, 'dropout_rate': 0.0}",N/A,0.8475,0.8750,0.7778,0.8235,0.9329
+MLP + Dropout,"{'weight_decay': 0.0, 'dropout_rate': 0.2}",N/A,0.8814,0.8846,0.8519,0.8679,0.9329
+MLP + WD + Dropout,"{'weight_decay': 0.01, 'dropout_rate': 0.2}",N/A,0.8475,0.8750,0.7778,0.8235,0.9421
+PCA + Logistic Regression,"{'n_components': 14, 'l2': 0.01}",N/A,0.8644,0.8276,0.8889,0.8571,0.9329
+PCA + KNN Classifier,"{'n_components': 14, 'n_neighbors': 7}",N/A,0.8305,0.7931,0.8519,0.8214,0.9248
+SVD + Logistic Regression,"{'n_components': 10, 'l2': 0.01}",N/A,0.8305,0.7931,0.8519,0.8214,0.9039
+SVD + KNN Classifier,"{'n_components': 10, 'n_neighbors': 7}",N/A,0.8136,0.7667,0.8519,0.8070,0.8825
+LDA + Logistic Regression,{'n_components': 1},N/A,0.8305,0.8148,0.8148,0.8148,0.9178
+Hard Margin SVM,"{'penalty': 1000.0, 'is_separable': False}",N/A,0.7288,0.6410,0.9259,0.7576,0.9062
+Soft Margin SVM,{'C': 1.0},N/A,0.8644,0.8800,0.8148,0.8462,0.9236
+Kernel SVM - Linear,"{'kernel': 'linear', 'C': 1.0}",N/A,0.8644,0.8800,0.8148,0.8462,0.9225
+Kernel SVM - Polynomial,"{'kernel': 'poly', 'degree': 3, 'C': 1.0, 'gamma': 'scale'}",N/A,0.8305,0.7931,0.8519,0.8214,0.9387
+Kernel SVM - RBF,"{'kernel': 'rbf', 'C': 1.0, 'gamma': 'scale'}",N/A,0.8644,0.8276,0.8889,0.8571,0.9456
+Kernel SVM - Sigmoid,"{'kernel': 'sigmoid', 'C': 1.0, 'gamma': 'scale'}",N/A,0.8305,0.8400,0.7778,0.8077,0.9120
+One-vs-Rest SVM (3-Class Synthetic),"{'kernel': 'rbf', 'C': 2.0, 'target_note': 'Dataset lacks 0-4 severity'}",N/A,1.0000,1.0000,1.0000,1.0000,N/A
