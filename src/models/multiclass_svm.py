@@ -93,3 +93,113 @@ class MulticlassSVM:
         scores = self.decision_function(X)
 
         return np.argmax(scores, axis=1)
+
+
+class OneVsRestSVM:
+    """One-vs-Rest (OvR) multiclass SVM meta-estimator."""
+    def __init__(self, estimator_cls=None, **estimator_kwargs):
+        self.estimator_cls = estimator_cls
+        self.estimator_kwargs = estimator_kwargs
+        self.classes_ = None
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y).ravel()
+
+        if self.estimator_cls is None:
+            from .kernel_svm import KernelSVM
+            self.estimator_cls = KernelSVM
+
+        self.classes_ = np.unique(y)
+        self.estimators_ = []
+
+        for c in self.classes_:
+            y_bin = np.where(y == c, 1.0, -1.0)
+            clf = self.estimator_cls(**self.estimator_kwargs)
+            clf.fit(X, y_bin)
+            self.estimators_.append(clf)
+
+        return self
+
+    def decision_function(self, X):
+        X = np.asarray(X, dtype=np.float64)
+        if not self.estimators_:
+            raise RuntimeError("Model is not fitted yet.")
+
+        scores = []
+        for clf in self.estimators_:
+            if hasattr(clf, "decision_function"):
+                s = clf.decision_function(X)
+            else:
+                s = clf.predict(X)
+            scores.append(s)
+
+        return np.column_stack(scores)
+
+    def predict(self, X):
+        scores = self.decision_function(X)
+        best_indices = np.argmax(scores, axis=1)
+        return self.classes_[best_indices]
+
+
+class OneVsOneSVM:
+    """One-vs-One (OvO) multiclass SVM meta-estimator."""
+    def __init__(self, estimator_cls=None, **estimator_kwargs):
+        self.estimator_cls = estimator_cls
+        self.estimator_kwargs = estimator_kwargs
+        self.classes_ = None
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y).ravel()
+
+        if self.estimator_cls is None:
+            from .kernel_svm import KernelSVM
+            self.estimator_cls = KernelSVM
+
+        self.classes_ = np.unique(y)
+        self.estimators_ = []
+
+        n_classes = len(self.classes_)
+        for i in range(n_classes):
+            for j in range(i + 1, n_classes):
+                c1, c2 = self.classes_[i], self.classes_[j]
+                mask = (y == c1) | (y == c2)
+                X_pair = X[mask]
+                y_pair = np.where(y[mask] == c1, 1.0, -1.0)
+
+                clf = self.estimator_cls(**self.estimator_kwargs)
+                clf.fit(X_pair, y_pair)
+                self.estimators_.append((c1, c2, clf))
+
+        return self
+
+    def predict(self, X):
+        X = np.asarray(X, dtype=np.float64)
+        if not self.estimators_:
+            raise RuntimeError("Model is not fitted yet.")
+
+        n_samples = X.shape[0]
+        votes = np.zeros((n_samples, len(self.classes_)), dtype=np.int64)
+        class_to_idx = {c: idx for idx, c in enumerate(self.classes_)}
+
+        for c1, c2, clf in self.estimators_:
+            if hasattr(clf, "decision_function"):
+                pred_sign = clf.decision_function(X)
+                pred = np.where(pred_sign >= 0.0, c1, c2)
+            else:
+                pred_bin = clf.predict(X)
+                pred = np.where(pred_bin >= 0.0, c1, c2)
+
+            idx1 = class_to_idx[c1]
+            idx2 = class_to_idx[c2]
+            for s_idx in range(n_samples):
+                if pred[s_idx] == c1:
+                    votes[s_idx, idx1] += 1
+                else:
+                    votes[s_idx, idx2] += 1
+
+        best_indices = np.argmax(votes, axis=1)
+        return self.classes_[best_indices]

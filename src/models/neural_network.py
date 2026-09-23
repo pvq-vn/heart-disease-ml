@@ -7,13 +7,20 @@ class MLPClassifier:
         learning_rate=0.001,
         epochs=300,
         batch_size=32,
+        weight_decay=0.0,
+        dropout_rate=0.0,
         random_state=42
     ):
         self.hidden_layers = tuple(hidden_layers)
         self.learning_rate = float(learning_rate)
         self.epochs = int(epochs)
         self.batch_size = int(batch_size)
+        self.weight_decay = float(weight_decay)
+        self.dropout_rate = float(dropout_rate)
         self.random_state = random_state
+
+        if self.weight_decay < 0.0: raise ValueError()
+        if not 0.0 <= self.dropout_rate < 1.0: raise ValueError()
 
         self.weights_ = []
         self.biases_ = []
@@ -58,9 +65,10 @@ class MLPClassifier:
             self.weights_.append(W)
             self.biases_.append(b)
 
-    def _forward(self, X):
+    def _forward(self, X, training=False, rng=None):
         activations = [X]
         zs = []
+        dropout_masks = []
 
         a = X
 
@@ -71,8 +79,16 @@ class MLPClassifier:
             z = a @ W + b
             a = self._relu(z)
 
+            if training and self.dropout_rate > 0.0:
+                if rng is None: raise ValueError()
+                mask = (rng.random(a.shape) >= self.dropout_rate).astype(np.float64)
+                a = a * mask / (1.0 - self.dropout_rate)
+            else:
+                mask = None
+
             zs.append(z)
             activations.append(a)
+            dropout_masks.append(mask)
 
         W = self.weights_[-1]
         b = self.biases_[-1]
@@ -83,7 +99,7 @@ class MLPClassifier:
         zs.append(z)
         activations.append(a)
 
-        return activations, zs
+        return activations, zs, dropout_masks
 
     def fit(self, X, y):
         X = np.asarray(X, dtype=np.float64)
@@ -118,10 +134,14 @@ class MLPClassifier:
                 y_batch = y_shuffled[start:end]
 
                 m = X_batch.shape[0]
-                activations, zs = self._forward(X_batch)
+
+                activations, zs, dropout_masks = self._forward(X_batch, training=True, rng=rng)
                 y_pred = activations[-1]
 
-                loss = np.mean((y_batch - y_pred) ** 2)
+                data_loss = np.mean((y_batch - y_pred) ** 2)
+                regularization_loss = (self.weight_decay * sum(np.sum(W ** 2) for W in self.weights_))
+
+                loss = data_loss + regularization_loss
 
                 epoch_loss += loss
                 num_batches += 1
@@ -138,6 +158,9 @@ class MLPClassifier:
                 da = dz @ self.weights_[-1].T
 
                 for l in reversed(range(num_layers - 1)):
+                    if dropout_masks[l] is not None:
+                        da = da * dropout_masks[l] / (1.0 - self.dropout_rate)
+
                     dz = da * self._relu_deriv(zs[l])
 
                     dW[l] = activations[l].T @ dz
@@ -146,8 +169,11 @@ class MLPClassifier:
                     if l > 0: da = dz @ self.weights_[l].T
 
                 for l in range(num_layers):
-                    self.weights_[l] -= self.learning_rate * dW[l]
-                    self.biases_[l] -= self.learning_rate * db[l]
+                    dW[l] += 2.0 * self.weight_decay * self.weights_[l]
+
+                for l in range(num_layers):
+                    self.weights_[l] -= (self.learning_rate * dW[l])
+                    self.biases_[l] -= (self.learning_rate * db[l])
 
             self.loss_history_.append(epoch_loss / num_batches)
 
@@ -155,15 +181,13 @@ class MLPClassifier:
 
     def decision_function(self, X):
         X = np.asarray(X, dtype=np.float64)
-
-        _, zs = self._forward(X)
+        _, zs, _ = self._forward(X, training=False)
 
         return zs[-1].ravel()
 
     def predict_proba(self, X):
         X = np.asarray(X, dtype=np.float64)
-
-        activations, _ = self._forward(X)
+        activations, _, _ = self._forward(X, training=False)
 
         p1 = activations[-1].ravel()
         p0 = 1.0 - p1
